@@ -1,9 +1,8 @@
-catboost_info/
-sp_sales_task/
-.git/
-.ipynb_checkpoints/
-*.docx
-*.7z
-holidays_covid_calendar.csv
-app/app_hw.py
-app/app_test.py
+catboost_info
+data
+__pycache__
+.git
+.ipynb_checkpoints
+.venv_lenta
+run_jupyter.sh
+.env

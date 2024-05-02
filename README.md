@@ -1,15 +1,36 @@
 # Название проекта: Разработка алгоритма и интерфейса предсказательной модели для компании, занимающейся розничной торговлей
+
 ## Статус проекта: в работе
+
+## Заказчик: ООО "Лента"
+
+## Описание рабочих файлов:
+- [demand_forecast.ipynb](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/demand_forecast.ipynb) - рабочая тетрадь с исследованиями, визуализациями и текстовыми описаниями
+- [regression_research_class.py](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/regression_research_class.py) - файл, содержащий класс для проведения исследования
+- [requirements.txt](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/requirements.txt) - список зависимостей, необходимых для работы проекта, а также их версии
+- [assets](https://github.com/denis-42ds/demand_forecast_retailer/tree/lenta/assets) - директория с сохранёнными артефактами
+- [app](https://github.com/denis-42ds/demand_forecast_retailer/tree/lenta/app) - директория с приложением
+
+## Установка зависимостей и просмотр исследования
+```Bash
+git clone https://github.com/denis-42ds/demand_forecast_retailer.git
+cd demand_forecast_retailer
+pip install -r requirements.txt
+jupyter lab
+```
+
 ## Описание проекта
 <br>Необходимо создать интерфейс и алгоритм прогноза спроса на 14 дней для товаров собственного производства. 
 <br>Гранулярность ТК-SKU-День. 
 <br>Прогноз позволит повысить доступность и продажи в ТК, без повышения списаний и повышение маржинальности. 
 <br>При изготовлении товаров СП сотрудники будут ориентироваться не на экспертный подход, а на ML прогноз спроса, 
 <br>в соответствии с которым будут изготавливать продукцию и планировать заказы сырья.
+
 ## Цель проекта
 - Прогноз спроса для товаров СП с ежедневным обновлением.
 - Метрика точности: **WAPE** формула: 
 	- def wape(y_true: np.array, y_pred: np.array): return np.sum(np.abs(y_true-y_pred))/np.sum(np.abs(y_true))
+	
 ## Ход исследования
 - Предобработка данных
 - Объединение датафреймов, исследование общей таблицы
@@ -22,15 +43,13 @@
 - Выбор оптимальной модели (по результатам кросс-валидации, метрика WAPE)
 - Проверка качества лучшей модели на тестовой выборке (три метрики: WAPE, Recall, Precision), выявление важности признаков
 - Отчёт
+
 ## Используемые инструменты
-- python
-- pandas
-- numpy
-- matplotlib
-- seaborn
-- phik
-- scikit-learn
-- catboost
+- python: pandas, numpy, matplotlib, seaborn, phik, scikit-learn, catboost
+- mlflow
+- postgresql
+- docker
+
 ## Вывод:
 - Предоставленные данные объединены в единый датафрейм, к ним присоединена информация о праздничных и выходных днях в РФ
 - Проведено исследование на корреляцию в признаках, удалены зависимые признаки
