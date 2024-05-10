@@ -6,8 +6,8 @@
 
 ## Описание рабочих файлов:
 - [demand_forecast.ipynb](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/demand_forecast.ipynb) - рабочая тетрадь с исследованиями, визуализациями и текстовыми описаниями
-- [regression_research_class.py](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/regression_research_class.py) - файл, содержащий класс для проведения исследования
 - [requirements.txt](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/requirements.txt) - список зависимостей, необходимых для работы проекта, а также их версии
+- [regression_research_class.py](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/regression_research_class.py) - файл, содержащий класс для проведения исследования
 - [assets](https://github.com/denis-42ds/demand_forecast_retailer/tree/lenta/assets) - директория с сохранёнными артефактами
 - [app](https://github.com/denis-42ds/demand_forecast_retailer/tree/lenta/app) - директория с приложением
 

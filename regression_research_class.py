@@ -60,7 +60,7 @@ class DatasetExplorer:
         id_columns = [col for col in dataset.columns if 'id' in col]
         for col in id_columns:
             print(f"Количество уникальных значений в столбце '{col}': {dataset[col].nunique()}")
-            print(f"Соотношение уникальных значений и общего количества записей в столбце '{col}': {dataset[col].nunique() / dataset.shape[0]:.2f}")
+            print(f"Соотношение уникальных значений и общего количества записей в столбце '{col}': {dataset[col].nunique() / dataset.shape[0]:.4f}")
 
         if target:
             print('\nОписательные статистики целевой переменной:')
