@@ -1,8 +1,9 @@
 catboost_info
 data
+mlflow_experiments_store
 __pycache__
 .git
 .ipynb_checkpoints
 .venv_lenta
-run_jupyter.sh
+*.sh
 .env
