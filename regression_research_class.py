@@ -7,19 +7,20 @@ import seaborn as sns
 import psycopg2 as psycopg
 import matplotlib.pyplot as plt
 
+from typing import List
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from category_encoders import CatBoostEncoder
-from sklearn.preprocessing import OneHotEncoder
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, root_mean_squared_error, mean_absolute_percentage_error
 
 RANDOM_STATE = 42
 random.seed(RANDOM_STATE)
 np.random.seed(RANDOM_STATE)
 
-sns.set_style("white")
-sns.set_theme(style="whitegrid")
+sns.set_style('white')
+sns.set_theme(style='whitegrid')
 
 pd.options.display.max_rows = 32
 pd.options.display.max_columns = 50
@@ -29,6 +30,7 @@ class DatasetExplorer:
         self.DATA_PATH = DATA_PATH
 
     def explore_dataset(self, target=None, assets_dir=None):
+
         dataset = pd.read_csv(self.DATA_PATH)
         print('Общая информация по набору данных:')
         dataset.info()
@@ -86,6 +88,7 @@ class DatasetExplorer:
         return dataset
 
     def data_splitting(self, dataset=None, pred_period=None, target=None):
+
         dataset.sort_index(inplace=True)
         y = dataset[target]
         X = dataset.drop([target], axis=1)
@@ -100,25 +103,59 @@ class DatasetExplorer:
 
         return X_train, y_train, X_test, y_test
 
-    def data_preprocessing(self):
-        pass
+    def feature_engineering(self, dataset: pd.DataFrame, target: str, date_column: str, group_columns: List[str], window_size: int = 14) -> pd.DataFrame:
 
-    def model_fitting(self, model_name=None, train_features=None, train_labels=None, tscv=None, params=None, params_selection=False):
+        dataset = dataset.sort_values(by=date_column)
+        dataset.reset_index(drop=True, inplace=True)
+        dataset['rolling_mean_14d'] = dataset.groupby(group_columns)[target].transform(lambda x: x.rolling(window=window_size, min_periods=1).mean())
+        dataset['rolling_mean_14d_lag3'] = dataset['rolling_mean_14d'].shift(3)
+        dataset['rolling_mean_14d_lag7'] = dataset['rolling_mean_14d'].shift(7)
+        dataset['rolling_mean_14d_lag11'] = dataset['rolling_mean_14d'].shift(11)
+        dataset['rolling_mean_14d_lag14'] = dataset['rolling_mean_14d'].shift(14)
+        
+        dataset['month'] = dataset[date_column].dt.month
+        dataset['day'] = dataset[date_column].dt.day
+        dataset['day_of_year'] = dataset[date_column].dt.dayofyear
+        dataset['day_of_week'] = dataset[date_column].dt.dayofweek
+        dataset['quarter'] = dataset[date_column].dt.quarter
+        dataset['is_month_start'] = dataset[date_column].dt.is_month_start.astype(int)
+        dataset['is_month_end'] = dataset[date_column].dt.is_month_end.astype(int)
+
+        dataset = dataset.dropna()
+        dataset.drop('rolling_mean_14d', axis=1, inplace=True)
+        dataset.set_index('date', inplace=True)
+        print('Верхние строки набора данных:')
+        display(dataset.head())
+
+        return dataset
+
+    def model_fitting(self,
+                      model_name: str = None,
+                      train_features: pd.DataFrame = None,
+                      train_labels: pd.DataFrame = None,
+                      assets_dir: str = None,
+                      tscv = None,
+                      params = None,
+                      params_selection = False):
 
         # функция для расчёта метрики
         def wape(y_true: np.array, y_pred: np.array):
             return np.sum(np.abs(y_true-y_pred))/np.sum(np.abs(y_true))
 
-        if model_name == 'Baseline':
-            model = LinearRegression()
+        binary_features = []  #train_features.loc[:, train_features.nunique() == 2].columns.to_list()
+        cat_features = train_features.select_dtypes(include=['object']).columns.to_list()
+        num_features = train_features.drop(binary_features+cat_features, axis=1).columns.to_list()
 
-        binary_features = train_features.loc[:, train_features.nunique() == 2].columns.to_list()
-        cat_features = ['st_id', 'pr_group_id']
+        if model_name == 'Baseline' or model_name == 'Linear Regression':
+            model = LinearRegression()
+        else:
+            pass
 
         preprocessor = ColumnTransformer(
             [
                 ('binary', OneHotEncoder(drop='if_binary'), binary_features),
-                ('cat', CatBoostEncoder(), cat_features)
+                ('cat', CatBoostEncoder(random_state=RANDOM_STATE), cat_features),
+                ('numeric', StandardScaler(), num_features)
             ],
             remainder='drop',
             verbose_feature_names_out=False
@@ -139,20 +176,52 @@ class DatasetExplorer:
             'mse': [],
             'r2': []
         }
-        for train_index, test_index in tscv.split(train_features):
-            X_train_fold, X_test_fold = train_features.iloc[train_index], train_features.iloc[test_index]
-            y_train_fold, y_test_fold = train_labels.iloc[train_index], train_labels.iloc[test_index]
-    
-            pipeline.fit(X_train_fold.drop('pr_sku_id', axis=1), y_train_fold)
-            y_pred = pipeline.predict(X_test_fold.drop('pr_sku_id', axis=1))
-    
-            metrics['wape'].append(round(wape(y_test_fold, y_pred), 3))
-            metrics['mape'].append(round(mean_absolute_percentage_error(y_test_fold, y_pred), 3))
-            metrics['rmse'].append(round(root_mean_squared_error(y_test_fold, y_pred), 3))
-            metrics['mae'].append(round(mean_absolute_error(y_test_fold, y_pred), 3))
-            metrics['mse'].append(round(mean_squared_error(y_test_fold, y_pred), 3))
-            metrics['r2'].append(round(r2_score(y_test_fold, y_pred), 3))
 
+        if params_selection:
+            pass
+        else:
+            for train_index, test_index in tscv.split(train_features):
+                X_train_fold, X_test_fold = train_features.iloc[train_index], train_features.iloc[test_index]
+                y_train_fold, y_test_fold = train_labels.iloc[train_index], train_labels.iloc[test_index]
+    
+                pipeline.fit(X_train_fold, y_train_fold)
+                y_pred = pipeline.predict(X_test_fold)
+    
+                metrics['wape'].append(round(wape(y_test_fold, y_pred), 3))
+                metrics['mape'].append(round(mean_absolute_percentage_error(y_test_fold, y_pred), 3))
+                metrics['rmse'].append(round(root_mean_squared_error(y_test_fold, y_pred), 3))
+                metrics['mae'].append(round(mean_absolute_error(y_test_fold, y_pred), 3))
+                metrics['mse'].append(round(mean_squared_error(y_test_fold, y_pred), 3))
+                metrics['r2'].append(round(r2_score(y_test_fold, y_pred), 3))
+
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
+
+        ax1.plot(range(1, len(metrics['wape'])+1), metrics['wape'], label='WAPE')
+        ax1.plot(range(1, len(metrics['mape'])+1), metrics['mape'], label='MAPE')
+        ax1.plot(range(1, len(metrics['r2'])+1), metrics['r2'], label='R2')
+        ax1.set_xlabel('Fold')
+        ax1.set_ylabel('Metric Value')
+        ax1.set_title('Metric values during cross validation: WAPE, MAPE, R2')
+        ax1.legend()
+
+        ax2.plot(range(1, len(metrics['rmse'])+1), metrics['rmse'], label='RMSE')
+        ax2.plot(range(1, len(metrics['mae'])+1), metrics['mae'], label='MAE')
+        ax2.set_xlabel('Fold')
+        ax2.set_ylabel('Metric Value')
+        ax2.set_title('Metric values during cross validation: RMSE, MAE')
+        ax2.legend()
+
+        ax3.plot(range(1, len(metrics['mse'])+1), metrics['mse'], label='MSE')
+        ax3.set_xlabel('Fold')
+        ax3.set_ylabel('Metric Value')
+        ax3.set_title('Metric values during cross validation: MSE')
+        ax3.legend()
+
+        plt.tight_layout()
+        if assets_dir is not None:
+            plt.savefig(os.path.join(assets_dir, f"Metric values during cross validation {model_name} model.png"))
+        plt.show()
+        
         valid_metrics = {metric: round(np.mean(values), 3) for metric, values in metrics.items()}
         print('Средние значения метрик по кросс-валидации:')
         display(valid_metrics)
