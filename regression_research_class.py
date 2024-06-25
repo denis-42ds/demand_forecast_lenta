@@ -4,14 +4,17 @@ import mlflow
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import lightgbm as lgb
 import psycopg2 as psycopg
 import matplotlib.pyplot as plt
 
-from typing import List
+from typing import List, Dict, Any
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from category_encoders import CatBoostEncoder
 from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, root_mean_squared_error, mean_absolute_percentage_error
 
@@ -26,10 +29,15 @@ pd.options.display.max_rows = 32
 pd.options.display.max_columns = 50
 
 class DatasetExplorer:
-    def __init__(self, DATA_PATH=None):
+    def __init__(self, DATA_PATH: str = None):
         self.DATA_PATH = DATA_PATH
 
-    def explore_dataset(self, target=None, assets_dir=None):
+    @staticmethod
+    def wape(y_true: np.array, y_pred: np.array):
+        # функция для расчёта метрики wape
+        return np.sum(np.abs(y_true-y_pred))/np.sum(np.abs(y_true))
+
+    def explore_dataset(self, target: str = None, assets_dir: str = None):
 
         dataset = pd.read_csv(self.DATA_PATH)
         print('Общая информация по набору данных:')
@@ -87,11 +95,13 @@ class DatasetExplorer:
 
         return dataset
 
-    def data_splitting(self, dataset=None, pred_period=None, target=None):
+    @staticmethod
+    def data_splitting(dataset: pd.DataFrame = None, pred_period: int = None, target: str = None):
 
         dataset.sort_index(inplace=True)
         y = dataset[target]
         X = dataset.drop([target], axis=1)
+        X.index = pd.to_datetime(X.index)
 
         X_train = X[X.index <= (X.index.max() - pd.DateOffset(days=pred_period))]
         X_test = X[X.index > (X.index.max() - pd.DateOffset(days=pred_period))]
@@ -103,7 +113,12 @@ class DatasetExplorer:
 
         return X_train, y_train, X_test, y_test
 
-    def feature_engineering(self, dataset: pd.DataFrame, target: str, date_column: str, group_columns: List[str], window_size: int = 14) -> pd.DataFrame:
+    @staticmethod
+    def feature_engineering(dataset: pd.DataFrame = None,
+                            target: str = None,
+                            date_column: str = None,
+                            group_columns: List[str] = None,
+                            window_size: int = 14) -> pd.DataFrame:
 
         dataset = dataset.sort_values(by=date_column)
         dataset.reset_index(drop=True, inplace=True)
@@ -129,27 +144,18 @@ class DatasetExplorer:
 
         return dataset
 
-    def model_fitting(self,
-                      model_name: str = None,
+    @staticmethod
+    def model_fitting(model_name: str = None,
                       train_features: pd.DataFrame = None,
                       train_labels: pd.DataFrame = None,
                       assets_dir: str = None,
-                      tscv = None,
-                      params = None,
-                      params_selection = False):
+                      tscv: TimeSeriesSplit = None,
+                      params: Dict = None,
+                      params_selection: bool = False):
 
-        # функция для расчёта метрики
-        def wape(y_true: np.array, y_pred: np.array):
-            return np.sum(np.abs(y_true-y_pred))/np.sum(np.abs(y_true))
-
-        binary_features = []  #train_features.loc[:, train_features.nunique() == 2].columns.to_list()
+        binary_features = []#train_features.loc[:, train_features.nunique() == 2].columns.to_list()
         cat_features = train_features.select_dtypes(include=['object']).columns.to_list()
         num_features = train_features.drop(binary_features+cat_features, axis=1).columns.to_list()
-
-        if model_name == 'Baseline' or model_name == 'Linear Regression':
-            model = LinearRegression()
-        else:
-            pass
 
         preprocessor = ColumnTransformer(
             [
@@ -160,6 +166,13 @@ class DatasetExplorer:
             remainder='drop',
             verbose_feature_names_out=False
         )
+
+        if model_name == 'Linear Regression':
+            model = LinearRegression(**params)
+        elif model_name == 'Random Forest':
+            model = RandomForestRegressor(**params)
+        elif model_name == 'LGBM':
+            model = lgb.LGBMRegressor(**params)
 
         pipeline = Pipeline(
             [
@@ -178,21 +191,27 @@ class DatasetExplorer:
         }
 
         if params_selection:
-            pass
+            randomized_search = RandomizedSearchCV(pipeline, param_distributions=params, n_iter=10, cv=tscv)
+            randomized_search.fit(train_features, train_labels)
+
+            best_model = randomized_search.best_estimator_
+
         else:
-            for train_index, test_index in tscv.split(train_features):
-                X_train_fold, X_test_fold = train_features.iloc[train_index], train_features.iloc[test_index]
-                y_train_fold, y_test_fold = train_labels.iloc[train_index], train_labels.iloc[test_index]
-    
-                pipeline.fit(X_train_fold, y_train_fold)
-                y_pred = pipeline.predict(X_test_fold)
-    
-                metrics['wape'].append(round(wape(y_test_fold, y_pred), 3))
-                metrics['mape'].append(round(mean_absolute_percentage_error(y_test_fold, y_pred), 3))
-                metrics['rmse'].append(round(root_mean_squared_error(y_test_fold, y_pred), 3))
-                metrics['mae'].append(round(mean_absolute_error(y_test_fold, y_pred), 3))
-                metrics['mse'].append(round(mean_squared_error(y_test_fold, y_pred), 3))
-                metrics['r2'].append(round(r2_score(y_test_fold, y_pred), 3))
+            best_model = pipeline
+
+        for train_index, test_index in tscv.split(train_features):
+            X_train_fold, X_test_fold = train_features.iloc[train_index], train_features.iloc[test_index]
+            y_train_fold, y_test_fold = train_labels.iloc[train_index], train_labels.iloc[test_index]
+
+            best_model.fit(X_train_fold, y_train_fold)
+            y_pred = pipeline.predict(X_test_fold)
+
+            metrics['wape'].append(round(DatasetExplorer.wape(y_test_fold, y_pred), 3))
+            metrics['mape'].append(round(mean_absolute_percentage_error(y_test_fold, y_pred), 3))
+            metrics['rmse'].append(round(root_mean_squared_error(y_test_fold, y_pred), 3))
+            metrics['mae'].append(round(mean_absolute_error(y_test_fold, y_pred), 3))
+            metrics['mse'].append(round(mean_squared_error(y_test_fold, y_pred), 3))
+            metrics['r2'].append(round(r2_score(y_test_fold, y_pred), 3))
 
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
 
@@ -226,22 +245,22 @@ class DatasetExplorer:
         print('Средние значения метрик по кросс-валидации:')
         display(valid_metrics)
 
-        return valid_metrics, pipeline
+        return valid_metrics, best_model
 
-    def model_logging(self,
-					  experiment_name=None,
-					  run_name=None,
-					  registry_model=None,
-					  params=None,
-					  metrics=None,
-					  model=None,
-					  train_data=None,
-                      train_label=None,
-					  assets_dir=None,
-					  metadata=None,
-					  code_paths=None,
-					  tsh=None,
-					  tsp=None):
+    @staticmethod
+    def model_logging(experiment_name: str = None,
+					  run_name: str = None,
+					  registry_model: str = None,
+					  params: Dict = None,
+					  metrics: Dict = None,
+					  model: Any = None,
+					  train_data: pd.DataFrame = None,
+                      train_label: pd.DataFrame = None,
+					  assets_dir: str = None,
+					  metadata: Dict = None,
+					  code_paths: str = None,
+					  tsh: str = None,
+					  tsp: str = None):
 
         mlflow.set_tracking_uri(f"http://{tsh}:{tsp}")
         mlflow.set_registry_uri(f"http://{tsh}:{tsp}")
@@ -256,14 +275,14 @@ class DatasetExplorer:
         # input_example = (pd.DataFrame(train_data)).iloc[0].to_dict()
         input_example = train_data[:10]
 
-        if 'catboost' in registry_model:
+        if 'LGBM' in registry_model:
             with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
                 run_id = run.info.run_id
                 mlflow.log_artifacts(assets_dir)
                 mlflow.log_params(params)
                 mlflow.log_metrics(metrics)
-                model_info = mlflow.catboost.log_model(
-                    cb_model=model,
+                model_info = mlflow.lightgbm.log_model(
+                    lgb_model=model,
                     artifact_path='models',
                     pip_requirements=pip_requirements,
                     signature=signature,
@@ -291,7 +310,11 @@ class DatasetExplorer:
                     await_registration_for=60
 				)
 
-    def models_comparison(self, connection=None, postgres_credentials=None, experiment_name=None, assets_dir=None):
+    @staticmethod
+    def models_comparison(connection: Dict = None,
+                          postgres_credentials: Dict = None,
+                          experiment_name: str = None,
+                          assets_dir: str = None):
         connection.update(postgres_credentials)
         with psycopg.connect(**connection) as conn:
             with conn.cursor() as cur:
@@ -344,5 +367,48 @@ class DatasetExplorer:
             plt.savefig(os.path.join(assets_dir, 'Comparisons of models metrics.png'))
         plt.show()
 
-    def genre_rec_sys(self, dataset=None, image_name=None, emb_array=None, num_recommendations=3):
-        pass
+    @staticmethod
+    def test_best_model(model_name: str = None,
+                        model: Any = None,
+                        features_train: pd.DataFrame = None,
+                        features_test: pd.DataFrame = None,
+                        target_test: pd.DataFrame = None,
+                        save_figure: bool = False):
+        y_pred_proba = model.predict_proba(features_test.values)[:, 1]
+        roc_auc_value = roc_auc_score(target_test, y_pred_proba)
+        y_pred = model.predict(features_test.values)
+        f1_value = f1_score(target_test, y_pred)
+        
+        print(f"ROC-AUC на тестовой выборке: {round(roc_auc_value, 2)}")
+        print(f"F1 на тестовой выборке: {round(f1_value, 2)}")
+
+        fig, axs = plt.subplots(1, 2)
+        fig.tight_layout(pad=1.0)
+        fig.set_size_inches(18, 6, forward=True)
+
+        sns.heatmap(confusion_matrix(target_test, y_pred.round()), annot=True, fmt='3.0f', cmap='crest', ax=axs[0])
+        axs[0].set_title('Test confusion matrix', fontsize=16, y=1.02)
+
+        if model_name == 'LGBM':
+            lgb.plot_importance(model,
+                                ax=axs[1],
+                                height=0.2,
+                                xlim=None,
+                                ylim=None,
+                                title='Feature importance',
+                                xlabel='Feature importance',
+                                ylabel='Features',
+                                importance_type='auto',
+                                max_num_features=None,
+                                ignore_zero=True,
+                                figsize=None,
+                                dpi=None,
+                                grid=True,
+                                precision=3)
+        else:
+            explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+            shap_values = explainer.shap_values(features_train)
+            shap.summary_plot(shap_values, features_train, plot_size=(14, 5), show=False, plot_type='bar', ax=axs[1])
+        if save_figure:
+            plt.savefig(os.path.join(ASSETS_DIR, 'Test confusion matrix and Features importance.png'))
+        plt.show()

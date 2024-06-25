@@ -9,7 +9,7 @@
 - [requirements.txt](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/requirements.txt) - список зависимостей, необходимых для работы проекта, а также их версии
 - [regression_research_class.py](https://github.com/denis-42ds/demand_forecast_retailer/blob/lenta/regression_research_class.py) - файл, содержащий класс для проведения исследования
 - [assets](https://github.com/denis-42ds/demand_forecast_retailer/tree/lenta/assets) - директория с сохранёнными артефактами
-- [app](https://github.com/denis-42ds/demand_forecast_retailer/tree/lenta/app) - директория с приложением
+- [service](https://github.com/denis-42ds/demand_forecast_retailer/tree/lenta/service) - директория с приложением
 
 ## Установка зависимостей и просмотр исследования
 ```Bash
@@ -48,7 +48,7 @@ def wape(y_true: np.array, y_pred: np.array):
 - Отчёт
 
 ## Используемые инструменты
-- python: pandas, numpy, matplotlib, seaborn, phik, scikit-learn, catboost;
+- python: pandas, numpy, matplotlib, seaborn, phik, scikit-learn, lightgbm, catboost;
 - mlflow;
 - postgresql;
 - docker
@@ -58,8 +58,6 @@ def wape(y_true: np.array, y_pred: np.array):
 - Проведено исследование на корреляцию в признаках, удалены зависимые признаки
 - Проведено исследование на сезонность и тренд
 - Добавлены синтетические признаки (лаги, даты, скользящее среднее)
-- Возникли проблемы при попытке применения техник кодирования, в связи с чем из исследования исключены простые модели ML: линейная регрессия, случайный лес, дерево решений
-- Для запуска ARIMA недостаточно ресурсов
 - Для прогнозирования применена модель градиентного бустинга, т.к. она может одинаково хорошо работает с категориальными и количественными признаками
 - При помощи GridSearch подобраны оптимальные параметры модели с показателем wape на трейне 0.51
 - На тестовой выборке показатель wape получен 0.48
