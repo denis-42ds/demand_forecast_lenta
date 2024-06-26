@@ -1,6 +1,7 @@
 import os
 import random
 import mlflow
+import optuna
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -8,14 +9,14 @@ import lightgbm as lgb
 import psycopg2 as psycopg
 import matplotlib.pyplot as plt
 
-from typing import List, Dict, Any
 from sklearn.pipeline import Pipeline
+from typing import List, Dict, Any, Callable
 from sklearn.compose import ColumnTransformer
 from category_encoders import CatBoostEncoder
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
+from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV, cross_val_score
 from sklearn.metrics import (
     make_scorer,
     mean_squared_error,
@@ -150,6 +151,55 @@ class DatasetExplorer:
         display(dataset.head())
 
         return dataset
+
+    # @staticmethod
+    # def objective(trial, train_features, train_labels, tscv, model):
+    #     params = {
+    #         'model__num_iterations': trial.suggest_int('num_iterations', 100, 1000, step=100),
+    #         'model__learning_rate': trial.suggest_categorical('learning_rate', [0.01, 0.05, 0.1]),
+    #         'model__num_leaves': trial.suggest_int('num_leaves', 31, 61, step=5),
+    #         'model__boosting_type': trial.suggest_categorical('boosting_type', ['gbdt', 'dart']),
+    #         'model__seed': RANDOM_STATE,
+    #         'model__num_threads': 0,
+    #         'model__reg_lambda': trial.suggest_int('reg_lambda', 0, 6, step=2)
+    #     }
+
+    #     score = cross_val_score(model,
+    #                             train_features,
+    #                             train_labels,
+    #                             cv=tscv,
+    #                             scoring=make_scorer(DatasetExplorer.wape, greater_is_better=False)).mean()
+    #     return score
+    
+    @staticmethod
+    def optuna_hparams_selection(train_features: pd.DataFrame = None,
+                                 train_labels: pd.DataFrame = None,
+                                 tscv: TimeSeriesSplit = None,
+                                 objective: Callable = None):
+        binary_features = []#train_features.loc[:, train_features.nunique() == 2].columns.to_list()
+        cat_features = train_features.select_dtypes(include=['object']).columns.to_list()
+        num_features = train_features.drop(binary_features+cat_features, axis=1).columns.to_list()
+
+        preprocessor = ColumnTransformer(
+            [
+                ('binary', OneHotEncoder(drop='if_binary'), binary_features),
+                ('cat', CatBoostEncoder(random_state=RANDOM_STATE), cat_features),
+                ('numeric', StandardScaler(), num_features)
+            ],
+            remainder='drop',
+            verbose_feature_names_out=False
+        )
+        model = lgb.LGBMRegressor()
+        pipeline = Pipeline(
+            [
+                ('preprocessor', preprocessor),
+                ('model', model)
+            ]
+        )
+        study = optuna.create_study(direction='minimize')
+        study.optimize(lambda trial: objective(trial, train_features, train_labels, tscv, pipeline), n_trials=100)
+
+        return study.best_params
 
     @staticmethod
     def model_fitting(model_name: str = None,
