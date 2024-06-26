@@ -14,9 +14,16 @@ from sklearn.compose import ColumnTransformer
 from category_encoders import CatBoostEncoder
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, root_mean_squared_error, mean_absolute_percentage_error
+from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
+from sklearn.metrics import (
+    make_scorer,
+    mean_squared_error,
+    mean_absolute_error,
+    r2_score,
+    root_mean_squared_error,
+    mean_absolute_percentage_error
+)
 
 RANDOM_STATE = 42
 random.seed(RANDOM_STATE)
@@ -168,11 +175,11 @@ class DatasetExplorer:
         )
 
         if model_name == 'Linear Regression':
-            model = LinearRegression(**params)
+            model = LinearRegression()
         elif model_name == 'Random Forest':
-            model = RandomForestRegressor(**params)
+            model = RandomForestRegressor()
         elif model_name == 'LGBM':
-            model = lgb.LGBMRegressor(**params)
+            model = lgb.LGBMRegressor()
 
         pipeline = Pipeline(
             [
@@ -191,19 +198,23 @@ class DatasetExplorer:
         }
 
         if params_selection:
-            randomized_search = RandomizedSearchCV(pipeline, param_distributions=params, n_iter=10, cv=tscv)
+            randomized_search = RandomizedSearchCV(pipeline,
+                                                   param_distributions=params,
+                                                   n_iter=10,
+                                                   cv=tscv,
+                                                   scoring=make_scorer(DatasetExplorer.wape, greater_is_better=False))
             randomized_search.fit(train_features, train_labels)
-
-            best_model = randomized_search.best_estimator_
+            best_params = randomized_search.best_params_
 
         else:
-            best_model = pipeline
+            best_params = params
 
+        pipeline.set_params(**best_params)
         for train_index, test_index in tscv.split(train_features):
             X_train_fold, X_test_fold = train_features.iloc[train_index], train_features.iloc[test_index]
             y_train_fold, y_test_fold = train_labels.iloc[train_index], train_labels.iloc[test_index]
 
-            best_model.fit(X_train_fold, y_train_fold)
+            pipeline.fit(X_train_fold, y_train_fold)
             y_pred = pipeline.predict(X_test_fold)
 
             metrics['wape'].append(round(DatasetExplorer.wape(y_test_fold, y_pred), 3))
@@ -245,7 +256,7 @@ class DatasetExplorer:
         print('Средние значения метрик по кросс-валидации:')
         display(valid_metrics)
 
-        return valid_metrics, best_model
+        return valid_metrics, pipeline
 
     @staticmethod
     def model_logging(experiment_name: str = None,
@@ -341,7 +352,7 @@ class DatasetExplorer:
                               runs.name,
                               model_versions.name,
                               model_versions.version
-                            ORDER BY wape
+                            ORDER BY wape DESC
                             ''', (experiment_name,))
                 table_data = cur.fetchall()
                 table_columns = [desc[0] for desc in cur.description]
@@ -358,7 +369,7 @@ class DatasetExplorer:
                 plt.subplot(2, 3, i+1)
             else:
                 plt.subplot(2, 3, i+1)
-            sns.barplot(x='model_name', y=metric, data=models_data)
+            sns.barplot(x='model_name', y=metric, data=models_data, hue='model_name')
             plt.title(f'Comparison of {metric.upper()}')
             plt.xticks(rotation=45, ha='right')
 
