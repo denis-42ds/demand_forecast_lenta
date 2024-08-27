@@ -152,25 +152,6 @@ class DatasetExplorer:
 
         return dataset
 
-    # @staticmethod
-    # def objective(trial, train_features, train_labels, tscv, model):
-    #     params = {
-    #         'model__num_iterations': trial.suggest_int('num_iterations', 100, 1000, step=100),
-    #         'model__learning_rate': trial.suggest_categorical('learning_rate', [0.01, 0.05, 0.1]),
-    #         'model__num_leaves': trial.suggest_int('num_leaves', 31, 61, step=5),
-    #         'model__boosting_type': trial.suggest_categorical('boosting_type', ['gbdt', 'dart']),
-    #         'model__seed': RANDOM_STATE,
-    #         'model__num_threads': 0,
-    #         'model__reg_lambda': trial.suggest_int('reg_lambda', 0, 6, step=2)
-    #     }
-
-    #     score = cross_val_score(model,
-    #                             train_features,
-    #                             train_labels,
-    #                             cv=tscv,
-    #                             scoring=make_scorer(DatasetExplorer.wape, greater_is_better=False)).mean()
-    #     return score
-    
     @staticmethod
     def optuna_hparams_selection(train_features: pd.DataFrame = None,
                                  train_labels: pd.DataFrame = None,
@@ -434,33 +415,32 @@ class DatasetExplorer:
                         features_train: pd.DataFrame = None,
                         features_test: pd.DataFrame = None,
                         target_test: pd.DataFrame = None,
-                        save_figure: bool = False):
-        y_pred_proba = model.predict_proba(features_test.values)[:, 1]
-        roc_auc_value = roc_auc_score(target_test, y_pred_proba)
-        y_pred = model.predict(features_test.values)
-        f1_value = f1_score(target_test, y_pred)
-        
-        print(f"ROC-AUC на тестовой выборке: {round(roc_auc_value, 2)}")
-        print(f"F1 на тестовой выборке: {round(f1_value, 2)}")
+                        assets_dir: str = None):
+        predictions_model = pd.Series(data = model.predict(features_test), name = 'predictions_model', index = features_test.index)
+                
+        print('Показатель wape лучшей модели на тестовой выборке', round(DatasetExplorer.wape(target_test, model.predict(features_test)), 3))
 
-        fig, axs = plt.subplots(1, 2)
-        fig.tight_layout(pad=1.0)
-        fig.set_size_inches(18, 6, forward=True)
+        fig, axs = plt.subplots(2, 1)
+        fig.tight_layout(pad=4.5)
+        fig.set_size_inches(30, 6, forward=True)
 
-        sns.heatmap(confusion_matrix(target_test, y_pred.round()), annot=True, fmt='3.0f', cmap='crest', ax=axs[0])
-        axs[0].set_title('Test confusion matrix', fontsize=16, y=1.02)
+        target_test['2023-07-01':'2023-07-31'].plot(figsize=(15,6), grid=True, legend=True, ax=axs[0])
+        predictions_model['2023-07-01':'2023-07-31'].plot(grid=True, legend=True, ax=axs[0])
+        axs[0].set_title('Comparison of forecasts with real data', fontsize=16, y=1.02)
+        axs[0].set_xlabel('Time interval')
+        axs[0].set_ylabel('Demand')
 
         if model_name == 'LGBM':
-            lgb.plot_importance(model,
+            lgb.plot_importance(model.named_steps['model'],
                                 ax=axs[1],
-                                height=0.2,
+                                height=0.8,
                                 xlim=None,
                                 ylim=None,
                                 title='Feature importance',
                                 xlabel='Feature importance',
                                 ylabel='Features',
                                 importance_type='auto',
-                                max_num_features=None,
+                                max_num_features=5,
                                 ignore_zero=True,
                                 figsize=None,
                                 dpi=None,
@@ -470,6 +450,6 @@ class DatasetExplorer:
             explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
             shap_values = explainer.shap_values(features_train)
             shap.summary_plot(shap_values, features_train, plot_size=(14, 5), show=False, plot_type='bar', ax=axs[1])
-        if save_figure:
-            plt.savefig(os.path.join(ASSETS_DIR, 'Test confusion matrix and Features importance.png'))
+        if assets_dir is not None:
+            plt.savefig(os.path.join(assets_dir, 'Comparison of forecasts with real data and Features importance.png'))
         plt.show()
